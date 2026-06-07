@@ -83,5 +83,18 @@ def train():
     y_pred = model.predict(X_test)
     print(classification_report(y_test, y_pred))
 
+    embedding = get_embedding("liuyifei/1.png").reshape(1, -1)
+    probabilities = model.predict_proba(embedding)[0]
+    max_prob = np.max(probabilities)
+    
+    if max_prob < 0.9:
+        print(f"预测类别: unknown (最大概率 {max_prob:.2%} < 90%)")
+    else:
+        prediction = model.predict(embedding)[0]
+        print(f"预测类别: {prediction} (概率 {max_prob:.2%})")
+    
+    print(f"各类别概率: {probabilities}")
+
+
 if __name__ == "__main__":
     train()
