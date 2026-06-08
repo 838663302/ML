@@ -6,6 +6,7 @@ from facenet_pytorch import MTCNN, InceptionResnetV1
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
+import joblib
 
 # 脚本文件所在目录（不依赖执行位置）
 BASE_DIR = Path(__file__).parent.resolve()
@@ -54,7 +55,7 @@ def loaddataset(dataset_path):
     for subdir in subdirs:
         sorted_files = sorted([f for f in subdir.iterdir() if f.is_file()])
         for file in sorted_files:
-            embedding = get_embedding((path / file).resolve())
+            embedding = get_embedding(file)
             if embedding is not None:
                 embeddings.append(embedding)
                 labels.append(folderIndex)
@@ -64,9 +65,19 @@ def loaddataset(dataset_path):
     return np.array(embeddings), np.array(labels), map_label
 
 def train():
-    embeddings, labels, map_label = loaddataset("dataset")
+    result = loaddataset("dataset")
 
-    if embeddings is None or len(embeddings) == 0:
+    if result is None:
+        print("Dataset not found. Exiting.")
+        return
+    embeddings, labels, map_label = result
+
+    # 保存数据集到文件
+    np.save("embeddings.npy", embeddings)
+    np.save("labels.npy", labels)
+    joblib.dump(map_label, "map_label.pkl")
+
+    if len(embeddings) == 0:
         print("No valid embeddings extracted. Exiting.")
         return
     num_classes = len(map_label)
@@ -78,22 +89,27 @@ def train():
         return
 
     X_train, X_test, y_train, y_test = train_test_split(embeddings, labels, test_size=0.2, random_state=42)
-    model = LogisticRegression(max_iter=1000, multi_class='multinomial' if num_classes > 2 else 'auto', random_state=42)
+    model = LogisticRegression(max_iter=1000, random_state=42)
     model.fit(X_train, y_train)
+    joblib.dump(model, "model.pkl")
     y_pred = model.predict(X_test)
     print(classification_report(y_test, y_pred))
 
-    embedding = get_embedding("liuyifei/1.png").reshape(1, -1)
-    probabilities = model.predict_proba(embedding)[0]
-    max_prob = np.max(probabilities)
+    # embedding = get_embedding("liuyifei/1.png")
+    # if embedding is None:
+    #     print("Failed to get embedding for prediction image.")
+    #     return
+    # embedding = embedding.reshape(1, -1)
+    # probabilities = model.predict_proba(embedding)[0]
+    # max_prob = np.max(probabilities)
     
-    if max_prob < 0.9:
-        print(f"预测类别: unknown (最大概率 {max_prob:.2%} < 90%)")
-    else:
-        prediction = model.predict(embedding)[0]
-        print(f"预测类别: {prediction} (概率 {max_prob:.2%})")
+    # if max_prob < 0.9:
+    #     print(f"预测类别: unknown (最大概率 {max_prob:.2%} < 90%)")
+    # else:
+    #     prediction = model.predict(embedding)[0]
+    #     print(f"预测类别: {prediction} (概率 {max_prob:.2%})")
     
-    print(f"各类别概率: {probabilities}")
+    # print(f"各类别概率: {probabilities}")
 
 
 if __name__ == "__main__":
