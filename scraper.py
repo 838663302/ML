@@ -7,6 +7,8 @@ import threading
 from pathlib import Path
 from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from PIL import Image
+from io import BytesIO
 
 BASE_DIR = Path(__file__).parent.resolve()
 DATASET_DIR = BASE_DIR / "dataset"
@@ -80,6 +82,13 @@ def download_image(url: str, save_path: Path, retries: int = 3) -> bool:
             if "image" not in content_type and not url.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
                 return False
 
+            # 验证下载的内容是否为有效图片
+            try:
+                img = Image.open(BytesIO(resp.content))
+                img.load()
+            except Exception:
+                return False
+
             with open(save_path, "wb") as f:
                 f.write(resp.content)
             return True
@@ -110,6 +119,13 @@ def _download_task(url: str, save_path: Path, index: int, retries: int = 3) -> t
             content_type = resp.headers.get("Content-Type", "")
             if "image" not in content_type and not url.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
                 return False, f"  [{index}] 非图片内容，跳过"
+
+            # 验证下载的内容是否为有效图片
+            try:
+                img = Image.open(BytesIO(resp.content))
+                img.load()  # 尝试加载像素数据，比 verify() 更宽容
+            except Exception:
+                return False, f"  [{index}] 内容不是有效图片，跳过"
 
             with open(save_path, "wb") as f:
                 f.write(resp.content)
@@ -176,9 +192,9 @@ def scrape_person(name: str, query: str = None, count: int = 30, workers: int = 
 if __name__ == "__main__":
     # 在这里添加要爬取的人物
     scrape_person("xingye", query="周星驰 写真 照片", count=20)
-    # scrape_person("yangmi", query="杨幂 写真 照片", count=50)
-    # scrape_person("liuyifei", query="刘亦菲 写真 照片", count=110)
-    scrape_person("huge", query="胡歌 写真 照片", count=50)
-    scrape_person("chenglong", query="成龙 写真 照片", count=50)
-    scrape_person("sunhonglei", query="孙红雷 写真 照片", count=30)
-    scrape_person("sunli", query="孙俪 写真 照片", count=30)
+    scrape_person("yangmi", query="杨幂 写真 照片", count=30)
+    scrape_person("liuyifei", query="刘亦菲 写真 照片", count=20)
+    scrape_person("huge", query="胡歌 写真 照片", count=20)
+    scrape_person("chenglong", query="成龙 写真 照片", count=20)
+    scrape_person("sunhonglei", query="孙红雷 写真 照片", count=20)
+    scrape_person("sunli", query="孙俪 写真 照片", count=20)
