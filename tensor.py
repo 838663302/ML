@@ -1,5 +1,10 @@
 import torch
 import numpy as np
+from pathlib import Path
+# dir = sorted([d for d in Path(__file__).parent.resolve().iterdir() if d.is_dir()])
+# print(dir)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
 
 x = torch.randint(0,10,(2,2,2))
 print(x.long())
