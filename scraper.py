@@ -191,10 +191,10 @@ def scrape_person(name: str, query: str = None, count: int = 30, workers: int = 
 
 if __name__ == "__main__":
     # 在这里添加要爬取的人物
-    scrape_person("xingye", query="周星驰 写真 照片", count=20)
-    scrape_person("yangmi", query="杨幂 写真 照片", count=30)
-    scrape_person("liuyifei", query="刘亦菲 写真 照片", count=20)
-    scrape_person("huge", query="胡歌 写真 照片", count=20)
-    scrape_person("chenglong", query="成龙 写真 照片", count=20)
-    scrape_person("sunhonglei", query="孙红雷 写真 照片", count=20)
-    scrape_person("sunli", query="孙俪 写真 照片", count=20)
+    # scrape_person("xingye", query="周星驰 写真 照片", count=20)
+    # scrape_person("yangmi", query="杨幂 写真 照片", count=30)
+    scrape_person("liuyifei", query="刘亦菲 照片", count=5)
+    scrape_person("huge", query="胡歌 照片", count=10)
+    scrape_person("chenglong", query="成龙 照片", count=10)
+    scrape_person("sunhonglei", query="孙红雷 照片", count=10)
+    scrape_person("sunli", query="孙俪 照片", count=5)

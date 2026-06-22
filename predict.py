@@ -15,7 +15,7 @@ mtcnn = MTCNN(image_size=160, margin=10)
 resnet = InceptionResnetV1(pretrained='vggface2').eval()
 
 # Load classifier
-clf = joblib.load(MODEL_FILE)
+model = joblib.load(MODEL_FILE)
 label_map = joblib.load(LABEL_MAP_FILE)
 reverse_label_map = {v: k for k, v in label_map.items()}
 
@@ -25,8 +25,8 @@ def predict(image_path):
         return None, "No face detected", None
 
     # Predict
-    pred_label = clf.predict(embedding)[0]
-    pred_proba = clf.predict_proba(embedding)[0]
+    pred_label = model.predict(embedding)[0]
+    pred_proba = model.predict_proba(embedding)[0]
     
     person_name = reverse_label_map[pred_label]
     confidence = pred_proba[pred_label]
