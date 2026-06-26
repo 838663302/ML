@@ -7,4 +7,5 @@ matplotlib==3.10.9
 joblib==1.5.3
 Pillow==10.2.0
 facenet-pytorch==2.6.0
+torchsummary
 opencv-python==4.13.0.92

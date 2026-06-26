@@ -7,11 +7,11 @@ from embedding import get_embedding
 
 # Configuration
 MODEL_FILE = "./model.pkl"
-LABEL_MAP_FILE = "./labels.pkl"
+LABEL_MAP_FILE = "./map_label.pkl"
 
 # Initialize facenet models
 print("Loading models...")
-mtcnn = MTCNN(image_size=160, margin=10)
+mtcnn = MTCNN(image_size=160)
 resnet = InceptionResnetV1(pretrained='vggface2').eval()
 
 # Load classifier
@@ -23,6 +23,9 @@ def predict(image_path):
     embedding = get_embedding(image_path)
     if embedding is None:
         return None, "No face detected", None
+
+    # 转成二维数组 (1, n_features) 供 sklearn 使用
+    embedding = embedding.reshape(1, -1)
 
     # Predict
     pred_label = model.predict(embedding)[0]
@@ -37,14 +40,8 @@ def predict(image_path):
     return person_name, confidence, pred_proba
 
 if __name__ == "__main__":
-    import sys
     
-    if len(sys.argv) < 2:
-        print("Usage: python predict.py <image_path>")
-        print(f"Available classes: {list(label_map.keys())}")
-        sys.exit(1)
-    
-    image_path = sys.argv[1]
+    image_path = "./1.png"
     person, confidence, proba = predict(image_path)
     
     if person is None:

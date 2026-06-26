@@ -12,7 +12,7 @@ BASE_DIR = Path(__file__).parent.resolve()
 mtcnn = MTCNN(image_size=160)
 resnet = InceptionResnetV1(pretrained='vggface2').eval()
 
-@torch.inference_mode()
+# @torch.inference_mode()
 def get_embedding(image_path):
     path = Path(image_path)
     # 相对路径基于脚本所在目录解析
@@ -27,7 +27,8 @@ def get_embedding(image_path):
             if img_cropped is None:
                 print(f"No face detected in {image_path}")
                 return None
-            embedding = resnet(img_cropped.unsqueeze(0)).numpy().flatten()
+            with torch.no_grad():
+                embedding = resnet(img_cropped.unsqueeze(0)).numpy().flatten()
             return embedding
         except Exception as e:
             print(f"Error opening image {image_path}: {e}")
@@ -44,7 +45,7 @@ def loaddataset(dataset_path):
     map_label = {}
     labels = []
     embeddings = []
-    folderIndex = 1
+    folderIndex = 0
     
     # 获取所有子文件夹（每个文件夹代表一个类别）
     subdirs = sorted([d for d in path.iterdir() if d.is_dir()])

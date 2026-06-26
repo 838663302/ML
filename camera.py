@@ -1,7 +1,9 @@
 import cv2
 import os
+import time
 from datetime import datetime
 import ctypes
+from pathlib import Path
 
 def lock_screen():
     """调用 Windows API 实现锁屏"""
@@ -54,6 +56,51 @@ def capture_camera(save_dir="captured"):
     print("摄像头已关闭")
 
 
+def capture_hourly(interval=1800):
+    """
+    每半小时自动拍摄一张照片，保存到 dataset/zhangtao/ 文件夹
+    :param interval: 拍摄间隔（秒），默认1800秒=30分钟
+    """
+    save_dir = Path(__file__).parent / "dataset" / "zhangtao"
+    save_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 获取当前已有照片的最大序号
+    existing = sorted(save_dir.glob("*.jpg"))
+    if existing:
+        last_num = int(existing[-1].stem)
+    else:
+        last_num = 0
+    
+    print(f"开始每半小时拍照，保存目录: {save_dir}")
+    print(f"按 Ctrl+C 停止")
+    
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("无法打开摄像头")
+        return
+    
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("无法获取画面")
+                break
+            
+            # 拍摄并保存照片
+            last_num += 1
+            filename = save_dir / f"{last_num}.jpg"
+            cv2.imwrite(str(filename), frame)
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] 照片已保存: {filename}")
+            
+            # 等待下一次拍摄
+            time.sleep(interval)
+                
+    except KeyboardInterrupt:
+        print("\n已停止拍摄")
+    finally:
+        cap.release()
+
+
 if __name__ == "__main__":
-    capture_camera()
+    capture_hourly()
 

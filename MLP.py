@@ -10,37 +10,27 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 import joblib
+from facenet_pytorch import MTCNN, InceptionResnetV1
+
+import torchsummary
 
 Root_path = Path(__file__).parent.resolve()
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+mtcnn = MTCNN(image_size=160, device=device)
 # ==================== 数据集 ====================
 class FaceDataset(Dataset):
-    SUPPORTED_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
-
-    def __init__(self, root_dir, transform=None):
-        self.root_dir = root_dir
-        self.transform = transform
-        self.samples = []       # [(图片路径, 标签索引), ...]
-        self.classes = []       # 类别名列表
-        self.class_to_idx = {}  # 类别名 -> 索引
-
-
-        subdirs = sorted([d for d in self.root_dir.iterdir() if d.is_dir()])
-        for idx, subdir in enumerate(subdirs):
-            self.classes.append(subdir.name)
-            self.class_to_idx[subdir.name] = idx
-            for img in sorted([d for d in subdir.iterdir() if d.is_file()]):
-                if img.suffix.lower() in FaceDataset.SUPPORTED_EXT:
-                    self.samples.append((str(img), idx))
+    def __init__(self, embeddings,labels, class_to_idx):
+        self.embeddings = embeddings
+        self.labels = labels
+        self.class_to_idx = class_to_idx
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.embeddings)
 
     def __getitem__(self, idx):
-        img_path, label = self.samples[idx]
-        image = Image.open(img_path).convert("RGB")
-        if self.transform:
-            image = self.transform(image)
-        return image, label
+        embedding = self.embeddings[idx]
+        label = torch.tensor(self.labels[idx], dtype=torch.long)
+        return embedding, label
 
 
 # ==================== 迁移学习模型 ====================
@@ -80,49 +70,26 @@ class TransferModel(nn.Module):
         # backbone 提取 512 维特征
         x = self.backbone(x)
         # 分类头
-        x = self.dropout(F.relu(self.bn1(self.fc1(x))))
-        x = self.dropout(F.relu(self.bn2(self.fc2(x))))
+        x = self.dropout(self.bn1(self.fc1(x)).relu())
+        x = self.dropout(self.bn2(self.fc2(x)).relu())
         x = self.fc3(x)
         return x
 
 
 # ==================== 训练函数 ====================
-def train(dataset_dir="dataset", epochs=30, batch_size=32, lr=0.001):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"使用设备: {device}")
-
-    # FaceNet 标准预处理: 160x160 + 归一化
-    data_transforms = transforms.Compose([
-        transforms.Resize((160, 160)),
-        transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5],
-                             std=[0.5, 0.5, 0.5]),
-    ])
-
-    data_dir = Path(Root_path / dataset_dir).resolve()
-    if not data_dir.exists():
-        print("数据集目录不存在，请检查 dataset/ 文件夹。")
-        return
-    if not data_dir.is_dir():
-        print("数据集目录不存在，请检查 dataset/ 文件夹。")
-        return
-
-    # 加载数据集
-    full_dataset = FaceDataset(data_dir, transform=data_transforms)
+def train(embeddings, labels, label_map, epochs=30, batch_size=32, lr=0.001):
+    full_dataset = FaceDataset(embeddings, labels, label_map)
     if len(full_dataset) == 0:
         print("未找到任何图片，请检查 dataset/ 文件夹。")
         return
-    num_classes = len(full_dataset.classes)
-    print(f"共加载 {len(full_dataset)} 张图片, {num_classes} 个类别: {full_dataset.classes}")
-    print(full_dataset.samples)
+    num_classes = len(set(full_dataset.labels))
+    print(f"共加载 {len(full_dataset)} 张图片, {num_classes} 个类别: {full_dataset.labels}")
     
 
     # 划分训练集和测试集（按样本索引划分）
     train_idx, test_idx = train_test_split(
         range(len(full_dataset)), test_size=0.2, random_state=42,
-        stratify=[full_dataset.samples[i][1] for i in range(len(full_dataset))]
+        stratify=[full_dataset.labels[i] for i in range(len(full_dataset))]
     )
     train_subset = torch.utils.data.Subset(full_dataset, train_idx)
     test_subset = torch.utils.data.Subset(full_dataset, test_idx)
@@ -214,6 +181,26 @@ def train(dataset_dir="dataset", epochs=30, batch_size=32, lr=0.001):
     joblib.dump(full_dataset.class_to_idx, "map_label.pkl")
     print("模型已保存到 mlp_model.pth, 类别映射已保存到 map_label.pkl")
 
-
+def parpareData():
+    dataset_path = Root_path / "dataset"
+    if not dataset_path.exists():
+        print("数据集目录不存在，请检查 dataset/ 文件夹。")
+        return
+    subdirs = [d for d in dataset_path.iterdir() if d.is_dir()]
+    labels = []
+    embeddings = []
+    label_map = {}
+    for i, subdir in enumerate(subdirs):
+        label_map[subdir.name] = i
+        for image_path in subdir.iterdir():
+            image = Image.open(image_path).convert('RGB')
+            embeddings.append(mtcnn(image))
+            labels.append(i)
+    return embeddings, labels, label_map
 if __name__ == "__main__":
-    train()
+    # 返回MTCNN的tensor, (3,160,160), labels一维数组，map分类对象
+    # embeddings, labels, label_map = parpareData()
+    # train(embeddings, labels, label_map)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = TransferModel(num_classes=6)  # 假设6个类别
+    torchsummary.summary(model, (3, 160, 160), -1, "cpu")

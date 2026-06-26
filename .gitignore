@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ML模型和数据文件
+embeddings.npy
+labels.npy
+map_label.pkl
+model.pkl
+*.pth
+*.pkl
+*.npy
