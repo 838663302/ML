@@ -199,8 +199,5 @@ def parpareData():
     return embeddings, labels, label_map
 if __name__ == "__main__":
     # 返回MTCNN的tensor, (3,160,160), labels一维数组，map分类对象
-    # embeddings, labels, label_map = parpareData()
-    # train(embeddings, labels, label_map)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = TransferModel(num_classes=6)  # 假设6个类别
-    torchsummary.summary(model, (3, 160, 160), -1, "cpu")
+    embeddings, labels, label_map = parpareData()
+    train(embeddings, labels, label_map)

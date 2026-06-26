@@ -56,22 +56,20 @@ def capture_camera(save_dir="captured"):
     print("摄像头已关闭")
 
 
-def capture_hourly(interval=1800):
+def capture_hourly(interval=10):
     """
-    每半小时自动拍摄一张照片，保存到 dataset/zhangtao/ 文件夹
-    :param interval: 拍摄间隔（秒），默认1800秒=30分钟
+    每10秒自动拍摄一张照片，保存到 dataset/zhangtao/ 文件夹
+    :param interval: 拍摄间隔（秒），默认10秒
     """
     save_dir = Path(__file__).parent / "dataset" / "zhangtao"
     save_dir.mkdir(parents=True, exist_ok=True)
     
-    # 获取当前已有照片的最大序号
+    # 获取当前文件夹中图片数量作为初始值
     existing = sorted(save_dir.glob("*.jpg"))
-    if existing:
-        last_num = int(existing[-1].stem)
-    else:
-        last_num = 0
+    last_num = len(existing)
+    print(f"当前文件夹已有 {last_num} 张图片")
     
-    print(f"开始每半小时拍照，保存目录: {save_dir}")
+    print(f"开始每30秒拍照，保存目录: {save_dir}")
     print(f"按 Ctrl+C 停止")
     
     cap = cv2.VideoCapture(0)
@@ -86,11 +84,11 @@ def capture_hourly(interval=1800):
                 print("无法获取画面")
                 break
             
-            # 拍摄并保存照片
+            # 累加命名
             last_num += 1
             filename = save_dir / f"{last_num}.jpg"
             cv2.imwrite(str(filename), frame)
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] 照片已保存: {filename}")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] 照片已保存: {filename} (当前共 {last_num} 张)")
             
             # 等待下一次拍摄
             time.sleep(interval)
