@@ -44,9 +44,13 @@ class TransferModel(nn.Module):
         # 加载预训练 FaceNet backbone（输出 512 维特征）
         self.backbone = InceptionResnetV1(pretrained='vggface2')
 
-        # 冻结 backbone 所有参数
+        # 冻结 backbone 所有参数，然后解冻 block8 的最后两层
         for param in self.backbone.parameters():
             param.requires_grad = False
+        # block8_modules = [module for name, module in self.backbone.named_modules() if 'block8' in name]
+        # for module in block8_modules[-2:]:  # 解冻 block8 的最后两层
+        #     for param in module.parameters():
+        #         param.requires_grad = True
 
         # 全连接分类头（不使用 Sequential，逐层定义）
         self.fc1 = nn.Linear(512, hidden_dim)
@@ -77,7 +81,7 @@ class TransferModel(nn.Module):
 
 
 # ==================== 训练函数 ====================
-def train(embeddings, labels, label_map, epochs=30, batch_size=32, lr=0.001):
+def train(embeddings, labels, label_map, epochs=30, batch_size=32, lr=0.01):
     full_dataset = FaceDataset(embeddings, labels, label_map)
     if len(full_dataset) == 0:
         print("未找到任何图片，请检查 dataset/ 文件夹。")
@@ -127,6 +131,12 @@ def train(embeddings, labels, label_map, epochs=30, batch_size=32, lr=0.001):
             _, predicted = outputs.max(1)
             total += labels.size(0)
             correct += predicted.eq(labels).sum().item()
+        for name, param in model.named_parameters():
+            if 'block8' in name and param.requires_grad:
+                if param.grad is None:
+                    print(f"⚠️ {name} 梯度为 None！")
+                else:
+                    print(f"✅ {name} 梯度范数: {param.grad.norm().item():.6f}")
 
         scheduler.step()
         train_acc = correct / total
