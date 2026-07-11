@@ -22,28 +22,43 @@ model.load_state_dict(torch.load("mlp_model.pth", weights_only=True))
 model.eval()
 
 
-def show_countdown_and_lock():
-    """显示2秒倒计时弹框，然后锁屏"""
+def show_countdown_and_lock(face_count=0):
+    """显示10秒倒计时弹框，显示人脸数量。倒计时结束自动锁屏；手动关闭弹窗则取消锁屏。"""
     root = tk.Tk()
     root.title("警告")
     root.geometry("300x150")
     root.attributes('-topmost', True)
     
-    label = tk.Label(root, text="未知人脸，即将锁屏！", font=('Arial', 14), fg='red')
+    should_lock = True  # 是否执行锁屏的标记
+    
+    label = tk.Label(root, text=f"未知人脸，检测到 {face_count} 张人脸，即将锁屏！",
+                     font=('Arial', 12), fg='red')
     label.pack(pady=10)
     
-    countdown_label = tk.Label(root, text="2", font=('Arial', 36), fg='red')
+    countdown_label = tk.Label(root, text="10", font=('Arial', 36), fg='red')
     countdown_label.pack()
+    
+    def do_lock():
+        if not should_lock:
+            return
+        root.destroy()
+        ctypes.windll.user32.LockWorkStation()
     
     def update_countdown(count):
         if count > 0:
             countdown_label.config(text=str(count))
             root.after(1000, update_countdown, count - 1)
         else:
-            root.destroy()
-            ctypes.windll.user32.LockWorkStation()
+            do_lock()
     
-    root.after(1000, update_countdown, 1)
+    def on_close():
+        # 用户手动关闭弹窗：取消锁屏
+        nonlocal should_lock
+        should_lock = False
+        root.destroy()
+    
+    root.protocol("WM_DELETE_WINDOW", on_close)
+    root.after(1000, update_countdown, 9)
     root.mainloop()
 
 
@@ -58,6 +73,7 @@ def detect_faces_from_camera():
     
     print("实时检测中，每秒检测一次，按q退出")
     last_detect_time = 0
+    last_pts = []  # 保存最近一次检测到的关键点，使其在两次检测之间持续显示
     
     while True:
         ret, frame = cap.read()
@@ -73,10 +89,21 @@ def detect_faces_from_camera():
             # 转换为PIL Image
             image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             
-            # 检测所有人脸
-            faces = mtcnn(image)
-            
-            if faces is not None:
+            # 检测所有人脸，并获取关键点
+            # 老版本 API: mtcnn.detect(image, landmarks=True) -> (boxes, probs, points)
+            # boxes/points 均为 numpy 数组，points 形状 [N, 5, 2]
+            boxes, probs, points = mtcnn.detect(image, landmarks=True)
+
+            if boxes is not None and len(boxes) > 0:
+                # 从检测框裁剪出对齐后的人脸张量，用于模型推理
+                faces = mtcnn.extract(image, boxes, None)
+
+                # points: [N, 5, 2]，顺序：左眼、右眼、鼻尖、左嘴角、右嘴角
+                last_pts = []
+                for i in range(len(points)):
+                    pts = [(int(x), int(y)) for x, y in points[i]]
+                    last_pts.append(pts)
+
                 print(f"\n检测到 {len(faces)} 张人脸")
                 
                 # 使用模型预测
@@ -89,7 +116,7 @@ def detect_faces_from_camera():
                         if prob < 0.8:
                             name = "unknown"
                             print("  未知人脸，显示倒计时弹框...")
-                            show_countdown_and_lock()
+                            show_countdown_and_lock(len(faces))
                         else:
                             name = reverse_label_map[pred_class]
                         print(f"  人脸 {i+1}: {name} (置信度: {prob:.2%})")
@@ -106,6 +133,11 @@ def detect_faces_from_camera():
                     #         name = reverse_label_map[pred]
                     #     print(f"  人脸 {i+1}: {name} (置信度: {prob:.2%})")
         
+        # 在画面上绘制关键点（绿色圆点）
+        for pts in last_pts:
+            for (x, y) in pts:
+                cv2.circle(frame, (x, y), 2, (0, 255, 0), -1)
+
         # 显示视频流
         cv2.imshow("Camera", frame)
         
