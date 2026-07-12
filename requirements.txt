@@ -1,11 +1,11 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.12.0
-torchvision==0.27.0
-numpy
+torch==2.2.2
+torchvision==0.17.2
+numpy==1.26.4
 scikit-learn==1.8.0
 matplotlib==3.10.9
 joblib==1.5.3
 Pillow==10.2.0
 facenet-pytorch==2.6.0
 torchsummary
-opencv-python==4.13.0.92
+opencv-python==4.10.0.84
