@@ -2,6 +2,7 @@ import cv2
 import torch
 import ctypes
 import time
+import math
 import tkinter as tk
 from facenet_pytorch import MTCNN
 from PIL import Image
@@ -20,6 +21,32 @@ reverse_label_map = {v: k for k, v in label_map.items()}
 model = TransferModel(num_classes=len(label_map)).to(device)
 model.load_state_dict(torch.load("mlp_model.pth", weights_only=True))
 model.eval()
+
+# 5 个关键点的 3D 模型坐标（毫米）
+# 顺序：左眼、右眼、鼻尖、左嘴角、右嘴角
+FACE_3D_MODEL = np.array([
+    [-30.0, -30.0,  0.0],   # 左眼
+    [ 30.0, -30.0,  0.0],   # 右眼
+    [  0.0,   0.0, 60.0],   # 鼻尖（突出）
+    [-30.0,  60.0,  0.0],   # 左嘴角
+    [ 30.0,  60.0,  0.0],   # 右嘴角
+], dtype=np.float64)
+
+# 正视镜头的角度阈值（度）
+POSE_THRESHOLD = 15
+
+# 畸变系数（简化估算，默认无畸变）
+# [k1, k2, p1, p2, k3] 径向畸变 + 切向畸变
+DIST_COEFFS = np.zeros((5, 1), dtype=np.float64)
+
+
+def build_camera_matrix(width, height):
+    """根据图像宽高构建简化内参矩阵"""
+    return np.array([
+        [width,           0, width / 2],
+        [0,          width, height / 2],
+        [0,               0,         1]
+    ], dtype=np.float64)
 
 
 def show_countdown_and_lock(face_count=0):
@@ -62,6 +89,29 @@ def show_countdown_and_lock(face_count=0):
     root.mainloop()
 
 
+def get_head_pose(image_points_2d, camera_matrix):
+    """
+    用 solvePnP 从 2D 关键点估计头部姿态，返回 pitch/yaw/roll（度）。
+    image_points_2d: np.array [5, 2]，MTCNN 5 个关键点的像素坐标
+    """
+    success, rvec, tvec = cv2.solvePnP(
+        FACE_3D_MODEL, image_points_2d, camera_matrix, DIST_COEFFS,
+        flags=cv2.SOLVEPNP_EPNP
+    )
+    if not success:
+        return None
+
+    # rvec → 旋转矩阵 R
+    R, _ = cv2.Rodrigues(rvec)
+
+    # 从 R 提取 pitch/yaw/roll
+    pitch = math.degrees(math.atan2(-R[2][0], math.sqrt(R[2][1]**2 + R[2][2]**2)))
+    yaw   = math.degrees(math.atan2(R[1][0], R[0][0]))
+    roll  = math.degrees(math.atan2(R[2][1], R[2][2]))
+
+    return pitch, yaw, roll
+
+
 def detect_faces_from_camera():
     """
     从摄像头实时检测人脸并识别（每秒检测一次）
@@ -74,6 +124,11 @@ def detect_faces_from_camera():
     print("实时检测中，每秒检测一次，按q退出")
     last_detect_time = 0
     last_pts = []  # 保存最近一次检测到的关键点，使其在两次检测之间持续显示
+
+    # 从摄像头分辨率估算内参矩阵
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    camera_matrix = build_camera_matrix(width, height)
     
     while True:
         ret, frame = cap.read()
@@ -99,27 +154,48 @@ def detect_faces_from_camera():
                 faces = mtcnn.extract(image, boxes, None)
 
                 # points: [N, 5, 2]，顺序：左眼、右眼、鼻尖、左嘴角、右嘴角
+                # 用 solvePnP 计算每张人脸的姿态，过滤掉未正视镜头的
+                valid_faces = []
+                valid_pts = []
                 last_pts = []
                 for i in range(len(points)):
+                    image_points = np.array(points[i], dtype=np.float64)
+                    pose = get_head_pose(image_points, camera_matrix)
+                    if pose is None:
+                        continue
+                    pitch, yaw, roll = pose
                     pts = [(int(x), int(y)) for x, y in points[i]]
                     last_pts.append(pts)
 
-                print(f"\n检测到 {len(faces)} 张人脸")
+                    is_frontal = (abs(pitch) <= POSE_THRESHOLD and
+                                  abs(yaw) <= POSE_THRESHOLD and
+                                  abs(roll) <= POSE_THRESHOLD)
+
+                    print(f"  人脸 {i+1}: pitch={pitch:.1f}° yaw={yaw:.1f}° roll={roll:.1f}°"
+                          f"  {'正视' if is_frontal else '非正视(跳过)'}")
+
+                    if is_frontal:
+                        valid_faces.append(faces[i])
+                        valid_pts.append(pts)
+
+                print(f"\n检测到 {len(faces)} 张人脸，正视镜头 {len(valid_faces)} 张")
                 
-                # 使用模型预测
-                with torch.no_grad():
-                    outputs = model(faces)
-                    val, idx = torch.softmax(outputs, dim=1).max(dim=1)
-                    for i, pred in enumerate(idx):
-                        prob = val[i].item()
-                        pred_class = pred.item()
-                        if prob < 0.8:
-                            name = "unknown"
-                            print("  未知人脸，显示倒计时弹框...")
-                            show_countdown_and_lock(len(faces))
-                        else:
-                            name = reverse_label_map[pred_class]
-                        print(f"  人脸 {i+1}: {name} (置信度: {prob:.2%})")
+                # 只对正视镜头的人脸做识别
+                if len(valid_faces) > 0:
+                    valid_faces_tensor = torch.stack(valid_faces)
+                    with torch.no_grad():
+                        outputs = model(valid_faces_tensor)
+                        val, idx = torch.softmax(outputs, dim=1).max(dim=1)
+                        for i, pred in enumerate(idx):
+                            prob = val[i].item()
+                            pred_class = pred.item()
+                            if prob < 0.8:
+                                name = "unknown"
+                                print("  未知人脸，显示倒计时弹框...")
+                                show_countdown_and_lock(len(valid_faces))
+                            else:
+                                name = reverse_label_map[pred_class]
+                            print(f"  人脸 {i+1}: {name} (置信度: {prob:.2%})")
                     # for i, face in enumerate(faces):
                     #     face_input = face.unsqueeze(0).to(device)
                     #     output = model(face_input)

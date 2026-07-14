@@ -99,6 +99,45 @@ def capture_hourly(interval=10):
         cap.release()
 
 
+def estimate_camera_params():
+    """
+    打开摄像头拍一张照片，用简化公式估计相机内参矩阵。
+    camera_matrix = [[width, 0, width/2],
+                     [0, width, height/2],
+                     [0, 0, 1]]
+    返回: camera_matrix (3x3)
+    """
+    import numpy as np
+
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("无法打开摄像头")
+        return None
+
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        print("无法获取画面")
+        return None
+
+    height, width = frame.shape[:2]
+    # [[640.   0. 320.]
+    #  [  0. 640. 240.]
+    #  [  0.   0.   1.]]
+    camera_matrix = np.array([
+        [width,           0, width / 2],
+        [0,          width, height / 2],
+        [0,               0,         1]
+    ], dtype=np.float64)
+
+    print(f"图像尺寸: {width}x{height}")
+    print(f"相机内参矩阵:\n{camera_matrix}")
+    return camera_matrix
+
+
 if __name__ == "__main__":
-    capture_hourly()
+    pass
+    # capture_hourly()
+    # 通过摄像头拍一张照片估计内参矩阵（无参数）
+    estimate_camera_params()
 

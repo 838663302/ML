@@ -1,5 +1,3 @@
-from curses import raw
-
 import pandas as pd
 import config
 from sklearn.model_selection import train_test_split
@@ -17,7 +15,7 @@ def build_dataset(sentences, word2id):
 
 
 def process():
-    raw_json = pd.read_json(config.DATASET_DIR / "raw.jsonl", lines=True, orient='records').sample(frac=0.4, random_state=42)
+    raw_json = pd.read_json(config.DATASET_DIR / "raw.jsonl", lines=True, orient='records').sample(frac=0.3, random_state=42)
     # print(raw_json.head().to_dict())
     dialog = raw_json["dialog"]
     sentences = []
