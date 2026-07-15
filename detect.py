@@ -11,7 +11,7 @@ import joblib
 from MLP import TransferModel
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-mtcnn = MTCNN(image_size=160, keep_all=True, device=device)
+mtcnn = MTCNN(image_size=160, keep_all=True, device=device, thresholds=[0.7, 0.8, 0.8])
 
 # 加载标签映射
 label_map = joblib.load("map_label.pkl")
@@ -34,6 +34,8 @@ FACE_3D_MODEL = np.array([
 
 # 正视镜头的角度阈值（度）
 POSE_THRESHOLD = 15
+# 人脸检测置信度阈值（过滤低置信度检测，包括侧脸）
+CONFIDENCE_THRESHOLD = 0.9
 
 # 畸变系数（简化估算，默认无畸变）
 # [k1, k2, p1, p2, k3] 径向畸变 + 切向畸变
@@ -104,10 +106,20 @@ def get_head_pose(image_points_2d, camera_matrix):
     # rvec → 旋转矩阵 R
     R, _ = cv2.Rodrigues(rvec)
 
-    # 从 R 提取 pitch/yaw/roll
-    pitch = math.degrees(math.atan2(-R[2][0], math.sqrt(R[2][1]**2 + R[2][2]**2)))
-    yaw   = math.degrees(math.atan2(R[1][0], R[0][0]))
-    roll  = math.degrees(math.atan2(R[2][1], R[2][2]))
+    # 从旋转矩阵提取 pitch/yaw/roll（ZYX 分解）
+    # OpenCV 相机坐标系: X右, Y下, Z朝前
+    # pitch = 绕X轴旋转（上下点头）
+    # yaw   = 绕Y轴旋转（左右转头）
+    # roll  = 绕Z轴旋转（左右歪头）
+    sy = math.sqrt(R[0][0] * R[0][0] + R[1][0] * R[1][0])
+    if sy < 1e-6:  # gimbal lock 处理
+        pitch = math.degrees(math.atan2(-R[1][2], R[1][1]))
+        yaw   = math.degrees(math.atan2(-R[2][0], sy))
+        roll  = 0.0
+    else:
+        pitch = math.degrees(math.atan2(R[2][1], R[2][2]))
+        yaw   = math.degrees(math.atan2(-R[2][0], sy))
+        roll  = math.degrees(math.atan2(R[1][0], R[0][0]))
 
     return pitch, yaw, roll
 
@@ -143,16 +155,26 @@ def detect_faces_from_camera():
             
             # 转换为PIL Image
             image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            
+            print("-" * 10, "开始检测", "-" * 10)
             # 检测所有人脸，并获取关键点
             # 老版本 API: mtcnn.detect(image, landmarks=True) -> (boxes, probs, points)
             # boxes/points 均为 numpy 数组，points 形状 [N, 5, 2]
             boxes, probs, points = mtcnn.detect(image, landmarks=True)
 
             if boxes is not None and len(boxes) > 0:
+                if probs is not None:
+                    mask = [p >= CONFIDENCE_THRESHOLD for p in probs]
+                    boxes = [box for box, m in zip(boxes, mask) if m]
+                    probs = [p for p, m in zip(probs, mask) if m]
+                    points = [pt for pt, m in zip(points, mask) if m]
+                
+                # 检查过滤后是否还有检测结果
+                if len(boxes) == 0:
+                    continue
+                
                 # 从检测框裁剪出对齐后的人脸张量，用于模型推理
                 faces = mtcnn.extract(image, boxes, None)
-
+                
                 # points: [N, 5, 2]，顺序：左眼、右眼、鼻尖、左嘴角、右嘴角
                 # 用 solvePnP 计算每张人脸的姿态，过滤掉未正视镜头的
                 valid_faces = []
@@ -168,8 +190,7 @@ def detect_faces_from_camera():
                     last_pts.append(pts)
 
                     is_frontal = (abs(pitch) <= POSE_THRESHOLD and
-                                  abs(yaw) <= POSE_THRESHOLD and
-                                  abs(roll) <= POSE_THRESHOLD)
+                                  abs(yaw) <= POSE_THRESHOLD)
 
                     print(f"  人脸 {i+1}: pitch={pitch:.1f}° yaw={yaw:.1f}° roll={roll:.1f}°"
                           f"  {'正视' if is_frontal else '非正视(跳过)'}")
@@ -208,7 +229,7 @@ def detect_faces_from_camera():
                     #     else:
                     #         name = reverse_label_map[pred]
                     #     print(f"  人脸 {i+1}: {name} (置信度: {prob:.2%})")
-        
+            print("-" * 10, "检测完成", "-" * 10)
         # 在画面上绘制关键点（绿色圆点）
         for pts in last_pts:
             for (x, y) in pts:

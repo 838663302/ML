@@ -11,8 +11,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 import joblib
 from facenet_pytorch import MTCNN, InceptionResnetV1
+import torchsummary as summary
+from torch.utils.tensorboard import SummaryWriter
 
-import torchsummary
+from datetime import datetime
+
+writer = SummaryWriter(log_dir=f'logs/MLP-{datetime.now().strftime("%Y%m%d_%H%M%S")}')
 
 Root_path = Path(__file__).parent.resolve()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -52,7 +56,6 @@ class TransferModel(nn.Module):
         #     for param in module.parameters():
         #         param.requires_grad = True
 
-        # 全连接分类头（不使用 Sequential，逐层定义）
         self.fc1 = nn.Linear(512, hidden_dim)
         self.bn1 = nn.BatchNorm1d(hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, 128)
@@ -98,8 +101,8 @@ def train(embeddings, labels, label_map, epochs=30, batch_size=32, lr=0.01):
     train_subset = torch.utils.data.Subset(full_dataset, train_idx)
     test_subset = torch.utils.data.Subset(full_dataset, test_idx)
 
-    train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_subset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True, drop_last=True)
+    test_loader = DataLoader(test_subset, batch_size=batch_size, shuffle=False, drop_last=True)
 
     print(f"训练集: {len(train_subset)} 张 | 测试集: {len(test_subset)} 张")
 
