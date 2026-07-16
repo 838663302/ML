@@ -13,6 +13,7 @@ from torchvision import transforms
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
+from torch.utils.tensorboard import SummaryWriter
 
 # 脚本文件所在目录（不依赖执行位置）
 BASE_DIR = Path(__file__).parent.resolve()
@@ -147,6 +148,7 @@ def train_model():
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.2)
     num_epochs = 25
     best_acc = 0.0
+    watcher = SummaryWriter(log_dir=f"logs/{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     for epoch in range(num_epochs):
         model.train()
         lossvalue = 0

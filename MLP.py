@@ -51,10 +51,10 @@ class TransferModel(nn.Module):
         # 冻结 backbone 所有参数，然后解冻 block8 的最后两层
         for param in self.backbone.parameters():
             param.requires_grad = False
-        # block8_modules = [module for name, module in self.backbone.named_modules() if 'block8' in name]
-        # for module in block8_modules[-2:]:  # 解冻 block8 的最后两层
-        #     for param in module.parameters():
-        #         param.requires_grad = True
+        block8_modules = [module for name, module in self.backbone.named_children() if 'block8' in name]
+        for module in block8_modules:  
+            for param in module.parameters():
+                param.requires_grad = True
 
         self.fc1 = nn.Linear(512, hidden_dim)
         self.bn1 = nn.BatchNorm1d(hidden_dim)
@@ -134,12 +134,6 @@ def train(embeddings, labels, label_map, epochs=30, batch_size=32, lr=0.01):
             _, predicted = outputs.max(1)
             total += labels.size(0)
             correct += predicted.eq(labels).sum().item()
-        for name, param in model.named_parameters():
-            if 'block8' in name and param.requires_grad:
-                if param.grad is None:
-                    print(f"⚠️ {name} 梯度为 None！")
-                else:
-                    print(f"✅ {name} 梯度范数: {param.grad.norm().item():.6f}")
 
         scheduler.step()
         train_acc = correct / total

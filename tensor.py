@@ -9,9 +9,9 @@ import torch.nn as nn
 from torchvision import models
 mobilenet = models.mobilenet_v2(pretrained=True)
 resnet = InceptionResnetV1(pretrained='vggface2')
-print(mobilenet.features[0][0])
-for name, module in mobilenet.named_children():
-    print(name,"----", module)
+print([module for name, module in resnet.named_children() if 'block8' in name])
+# for name, module in resnet.named_children():
+#     print(name,"----", module)
 # summary.summary(mobilenet, (3, 224, 224), -1, 'cpu')
 # DataLoader()
 # mtcnn = MTCNN(image_size=160)

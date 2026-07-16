@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>MLP.py 流程图</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; margin: 0; padding: 20px; }
+        h1 { text-align: center; color: #e94560; margin-bottom: 10px; }
+        .subtitle { text-align: center; color: #aaa; margin-bottom: 30px; font-size: 14px; }
+        .mermaid { display: flex; justify-content: center; }
+        .legend { max-width: 700px; margin: 30px auto 0; padding: 16px; background: #16213e; border-radius: 8px; font-size: 13px; line-height: 1.8; }
+        .legend span { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+        .legend .frozen  { background: #7ec8e3; }
+        .legend .train   { background: #f4a261; }
+        .legend .preproc { background: #2a9d8f; }
+        .legend .data    { background: #e9c46a; }
+    </style>
+</head>
+<body>
+
+<h1>MLP.py — 迁移学习人脸识别流程</h1>
+<p class="subtitle">MTCNN 人脸检测 → FaceNet Backbone 特征提取 → 全连接分类头</p>
+
+<div class="mermaid">
+flowchart TB
+    subgraph 数据准备["📁 parpareData() 数据准备"]
+        A["📷 原始图片<br/>(dataset/人名/*.jpg)"] -->|"PIL Image.open"| B["PIL Image (RGB)"]
+        B -->|"MTCNN(image)"| C["人脸张量<br/>[3, 160, 160]<br/>值域 [-1, 1]"]
+        C --> D["embeddings<br/>(MTCNN 裁剪对齐)"]
+        D --> E["labels<br/>(文件夹名→数字)"]
+        E --> F["label_map<br/>(人名→ID 映射)"]
+    end
+
+    subgraph 数据集["📦 FaceDataset"]
+        G["embeddings 列表"] --> H["__getitem__"]
+        I["labels 列表"] --> H
+        H --> J["返回 (embedding, label)"]
+    end
+
+    subgraph 模型结构["🧠 TransferModel (迁移学习)"]
+        subgraph 预处理层["🔒 冻结"]
+            M["MTCNN 裁剪<br/>160×160 人脸"] -->|"detect.py 推理时"| N["Backbone<br/>InceptionResnetV1<br/>pretrained='vggface2'"]
+        end
+        N -->|"输出 512 维特征"| O["fc1: 512 → 256<br/>+ BatchNorm1d + ReLU + Dropout"]
+        O --> P["fc2: 256 → 128<br/>+ BatchNorm1d + ReLU + Dropout"]
+        P --> Q["fc3: 128 → num_classes"]
+        Q --> R["🎯 分类输出<br/>(人名+置信度)"]
+
+        subgraph 冻结说明["🔒 冻结区域"]
+            S1["backbone 全部参数<br/>requires_grad = False"]
+        end
+        subgraph 训练说明["🔥 可训练区域"]
+            S2["fc1 / fc2 / fc3<br/>Kaiming 初始化<br/>Adam 优化器"]
+        end
+    end
+
+    subgraph 训练流程["🔄 train()"]
+        T["FaceDataset"] --> U["train_test_split<br/>80% 训练 / 20% 测试"]
+        U --> V["DataLoader<br/>batch_size=32"]
+        V --> W["TransferModel"]
+        W --> X["CrossEntropyLoss"]
+        X --> Y["Adam 优化器<br/>+ StepLR 调度"]
+        Y --> Z["每 epoch 评估<br/>保存最佳模型"]
+        Z --> AA["📄 mlp_model.pth"]
+        Z --> AB["📄 map_label.pkl"]
+    end
+
+    subgraph 推理["🔍 detect.py 推理时"]
+        AC["摄像头画面"] -->|"MTCNN.detect()"| AD["人脸张量<br/>[N, 3, 160, 160]"]
+        AD -->|"model(face)"| N
+        R --> AE["分类结果<br/>人名 + 置信度"]
+    end
+
+    数据准备 --> 数据集
+    数据集 --> 训练流程
+    训练流程 --> 模型结构
+    推理 --> 模型结构
+
+    style 预处理层 fill:#7ec8e3,stroke:#fff,color:#111
+    style 训练说明 fill:#f4a261,stroke:#fff,color:#111
+    style 模型结构 fill:#16213e,stroke:#e94560,color:#eee
+    style 数据准备 fill:#16213e,stroke:#2a9d8f,color:#eee
+    style 训练流程 fill:#16213e,stroke:#e9c46a,color:#eee
+    style 推理 fill:#16213e,stroke:#a0d2db,color:#eee
+</div>
+
+<div class="legend">
+    <b>图例说明：</b><br>
+    <span class="frozen"></span> <b>蓝色</b> — 冻结层（backbone 不训练，仅提取特征）<br>
+    <span class="train"></span> <b>橙色</b> — 可训练层（fc1/fc2/fc3 全连接分类头）<br>
+    <span class="preproc"></span> <b>绿色框</b> — 数据预处理（MTCNN 检测+裁剪）<br>
+    <span class="data"></span> <b>黄色框</b> — 训练流程<br><br>
+    <b>数据流：</b>原始图片 → MTCNN 裁剪到 3×160×160 → Backbone 提取 512 维特征 → fc1(256) → fc2(128) → fc3(类别数) → 分类输出
+</div>
+
+<script>mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { fontSize: '14px' } });</script>
+</body>
+</html>

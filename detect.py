@@ -51,21 +51,45 @@ def build_camera_matrix(width, height):
     ], dtype=np.float64)
 
 
-def show_countdown_and_lock(face_count=0):
-    """显示10秒倒计时弹框，显示人脸数量。倒计时结束自动锁屏；手动关闭弹窗则取消锁屏。"""
+def show_countdown_and_lock(face_count=0, image=None, pts=None):
+    """显示10秒倒计时弹框，显示人脸数量、绘制关键点的图像。倒计时结束自动锁屏；手动关闭弹窗则取消锁屏。"""
+    from PIL import ImageTk, ImageDraw
     root = tk.Tk()
     root.title("警告")
-    root.geometry("300x150")
     root.attributes('-topmost', True)
-    
+
     should_lock = True  # 是否执行锁屏的标记
-    
-    label = tk.Label(root, text=f"未知人脸，检测到 {face_count} 张人脸，即将锁屏！",
+
+    # 文本区域
+    label = tk.Label(root, text=f"未知人脸，检测到正视 {face_count} 张人脸，即将锁屏！",
                      font=('Arial', 12), fg='red')
-    label.pack(pady=10)
-    
+    label.pack(pady=5)
+
+    # 如果有画面，缩放到弹窗内展示，并绘制关键点
+    if image is not None:
+        # 在拷贝上绘制，避免污染原图
+        img_draw = image.copy()
+        if pts is not None:
+            draw = ImageDraw.Draw(img_draw)
+            for face_pts in pts:
+                for x, y in face_pts:
+                    r = 3
+                    draw.ellipse([x-r, y-r, x+r, y+r], fill='red', outline='red')
+
+        # 缩放到合适大小（宽度不超过 400，保持比例）
+        w, h = img_draw.size
+        max_w = 400
+        if w > max_w:
+            h = int(h * max_w / w)
+            w = max_w
+        img_resized = img_draw.resize((w, h))
+        tk_img = ImageTk.PhotoImage(img_resized)
+        img_label = tk.Label(root, image=tk_img)
+        img_label.image = tk_img  # 防止垃圾回收
+        img_label.pack(pady=5)
+
     countdown_label = tk.Label(root, text="10", font=('Arial', 36), fg='red')
-    countdown_label.pack()
+    countdown_label.pack(pady=5)
     
     def do_lock():
         if not should_lock:
@@ -213,7 +237,7 @@ def detect_faces_from_camera():
                             if prob < 0.8:
                                 name = "unknown"
                                 print("  未知人脸，显示倒计时弹框...")
-                                show_countdown_and_lock(len(valid_faces))
+                                show_countdown_and_lock(len(valid_faces), image, last_pts)
                             else:
                                 name = reverse_label_map[pred_class]
                             print(f"  人脸 {i+1}: {name} (置信度: {prob:.2%})")
