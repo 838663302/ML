@@ -9,9 +9,10 @@
         h1 { text-align: center; color: #e94560; margin-bottom: 10px; }
         .subtitle { text-align: center; color: #aaa; margin-bottom: 30px; font-size: 14px; }
         .mermaid { display: flex; justify-content: center; }
-        .legend { max-width: 700px; margin: 30px auto 0; padding: 16px; background: #16213e; border-radius: 8px; font-size: 13px; line-height: 1.8; }
+        .legend { max-width: 760px; margin: 30px auto 0; padding: 16px; background: #16213e; border-radius: 8px; font-size: 13px; line-height: 1.8; }
         .legend span { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
         .legend .frozen  { background: #7ec8e3; }
+        .legend .finetune { background: #b5179e; }
         .legend .train   { background: #f4a261; }
         .legend .preproc { background: #2a9d8f; }
         .legend .data    { background: #e9c46a; }
@@ -25,73 +26,85 @@
 <div class="mermaid">
 flowchart TB
     subgraph 数据准备["📁 parpareData() 数据准备"]
-        A["📷 原始图片<br/>(dataset/人名/*.jpg)"] -->|"PIL Image.open"| B["PIL Image (RGB)"]
-        B -->|"MTCNN(image)"| C["人脸张量<br/>[3, 160, 160]<br/>值域 [-1, 1]"]
-        C --> D["embeddings<br/>(MTCNN 裁剪对齐)"]
-        D --> E["labels<br/>(文件夹名→数字)"]
-        E --> F["label_map<br/>(人名→ID 映射)"]
+        A["📷 原始图片<br/>dataset/人名/*.jpg"] -->|"PIL Image.open('RGB')"| B["PIL Image (RGB)"]
+        B -->|"mtcnn(image)"| C["人脸张量 embedding<br/>[3, 160, 160]<br/>值域 [-1, 1]"]
+        C --> D["embeddings 列表"]
+        A2["文件夹名<br/>(人名)"] --> E["labels 列表<br/>(人名→数字 i)"]
+        E --> F["label_map<br/>{人名: ID}"]
     end
 
-    subgraph 数据集["📦 FaceDataset"]
-        G["embeddings 列表"] --> H["__getitem__"]
-        I["labels 列表"] --> H
-        H --> J["返回 (embedding, label)"]
+    subgraph 数据集["📦 FaceDataset / DataLoader"]
+        G["__getitem__<br/>返回 (embedding, label)"] --> U["train_test_split<br/>80% 训练 / 20% 测试<br/>stratify 分层"]
+        U --> V["DataLoader<br/>batch_size=32<br/>drop_last=True"]
+        V --> BATCH["一个 batch<br/>images: [B, 3, 160, 160]<br/>labels: [B]"]
     end
 
-    subgraph 模型结构["🧠 TransferModel (迁移学习)"]
-        subgraph 预处理层["🔒 冻结"]
-            M["MTCNN 裁剪<br/>160×160 人脸"] -->|"detect.py 推理时"| N["Backbone<br/>InceptionResnetV1<br/>pretrained='vggface2'"]
-        end
-        N -->|"输出 512 维特征"| O["fc1: 512 → 256<br/>+ BatchNorm1d + ReLU + Dropout"]
-        O --> P["fc2: 256 → 128<br/>+ BatchNorm1d + ReLU + Dropout"]
-        P --> Q["fc3: 128 → num_classes"]
-        Q --> R["🎯 分类输出<br/>(人名+置信度)"]
+    subgraph 模型["🧠 TransferModel — forward(x)"]
+        direction TB
+        IN["🟢 输入 x<br/>[B, 3, 160, 160]<br/>(对齐后的人脸)"]
 
-        subgraph 冻结说明["🔒 冻结区域"]
-            S1["backbone 全部参数<br/>requires_grad = False"]
+        subgraph BB["🧊 Backbone — InceptionResnetV1 (pretrained='vggface2')"]
+            direction TB
+            BB1["🔒 冻结区<br/>绝大部分卷积层<br/>requires_grad = False"]
+            BB2["🔥 微调区 block8<br/>最后两层解冻<br/>requires_grad = True"]
+            BB1 --> BB2
         end
-        subgraph 训练说明["🔥 可训练区域"]
-            S2["fc1 / fc2 / fc3<br/>Kaiming 初始化<br/>Adam 优化器"]
+
+        subgraph HEAD["🟠 全连接分类头 (可训练, Kaiming 初始化)"]
+            direction TB
+            H1["fc1: Linear 512 → 256<br/>→ BatchNorm1d(256) → ReLU → Dropout(0.3)"]
+            H2["fc2: Linear 256 → 128<br/>→ BatchNorm1d(128) → ReLU → Dropout(0.3)"]
+            H3["fc3: Linear 128 → num_classes"]
+            H1 -->|"[B, 256]"| H2
+            H2 -->|"[B, 128]"| H3
         end
+
+        IN -->|"[B, 3, 160, 160]"| BB
+        BB -->|"512 维人脸特征<br/>[B, 512]"| HEAD
+        HEAD --> OUT["🔴 输出 logits<br/>[B, num_classes]<br/>→ softmax/argmax → 人名"]
     end
 
     subgraph 训练流程["🔄 train()"]
-        T["FaceDataset"] --> U["train_test_split<br/>80% 训练 / 20% 测试"]
-        U --> V["DataLoader<br/>batch_size=32"]
-        V --> W["TransferModel"]
-        W --> X["CrossEntropyLoss"]
-        X --> Y["Adam 优化器<br/>+ StepLR 调度"]
-        Y --> Z["每 epoch 评估<br/>保存最佳模型"]
+        W["model(images)<br/>→ outputs [B, num_classes]"] --> X["CrossEntropyLoss<br/>(outputs, labels)"]
+        X --> Y["Adam(仅 requires_grad=True 参数)<br/>lr=0.01, weight_decay=1e-4<br/>+ StepLR(step=10, gamma=0.5)"]
+        Y --> Z["每 epoch 评估测试集<br/>保存最佳模型"]
         Z --> AA["📄 mlp_model.pth"]
         Z --> AB["📄 map_label.pkl"]
     end
 
-    subgraph 推理["🔍 detect.py 推理时"]
-        AC["摄像头画面"] -->|"MTCNN.detect()"| AD["人脸张量<br/>[N, 3, 160, 160]"]
-        AD -->|"model(face)"| N
-        R --> AE["分类结果<br/>人名 + 置信度"]
-    end
-
     数据准备 --> 数据集
-    数据集 --> 训练流程
-    训练流程 --> 模型结构
-    推理 --> 模型结构
+    数据集 --> 模型
+    BATCH -.->|"images"| IN
+    模型 --> 训练流程
 
-    style 预处理层 fill:#7ec8e3,stroke:#fff,color:#111
-    style 训练说明 fill:#f4a261,stroke:#fff,color:#111
-    style 模型结构 fill:#16213e,stroke:#e94560,color:#eee
+    style 模型 fill:#0f3460,stroke:#e94560,color:#eee
+    style BB fill:#16213e,stroke:#7ec8e3,color:#eee
+    style HEAD fill:#16213e,stroke:#f4a261,color:#eee
+    style BB1 fill:#7ec8e3,stroke:#fff,color:#111
+    style BB2 fill:#b5179e,stroke:#fff,color:#fff
+    style H1 fill:#f4a261,stroke:#fff,color:#111
+    style H2 fill:#f4a261,stroke:#fff,color:#111
+    style H3 fill:#f4a261,stroke:#fff,color:#111
+    style IN fill:#2a9d8f,stroke:#fff,color:#fff
+    style OUT fill:#e94560,stroke:#fff,color:#fff
     style 数据准备 fill:#16213e,stroke:#2a9d8f,color:#eee
+    style 数据集 fill:#16213e,stroke:#e9c46a,color:#eee
     style 训练流程 fill:#16213e,stroke:#e9c46a,color:#eee
-    style 推理 fill:#16213e,stroke:#a0d2db,color:#eee
 </div>
 
 <div class="legend">
     <b>图例说明：</b><br>
-    <span class="frozen"></span> <b>蓝色</b> — 冻结层（backbone 不训练，仅提取特征）<br>
-    <span class="train"></span> <b>橙色</b> — 可训练层（fc1/fc2/fc3 全连接分类头）<br>
-    <span class="preproc"></span> <b>绿色框</b> — 数据预处理（MTCNN 检测+裁剪）<br>
-    <span class="data"></span> <b>黄色框</b> — 训练流程<br><br>
-    <b>数据流：</b>原始图片 → MTCNN 裁剪到 3×160×160 → Backbone 提取 512 维特征 → fc1(256) → fc2(128) → fc3(类别数) → 分类输出
+    <span class="frozen"></span> <b>蓝色</b> — Backbone 冻结区（绝大部分卷积层，requires_grad=False，仅提取特征）<br>
+    <span class="finetune"></span> <b>紫色</b> — Backbone 微调区（block8 最后两层解冻，参与训练）<br>
+    <span class="train"></span> <b>橙色</b> — 全连接分类头 fc1/fc2/fc3（可训练）<br>
+    <span class="preproc"></span> <b>绿色</b> — 模型输入 &nbsp;·&nbsp; <b>红色</b> — 模型输出<br>
+    <span class="data"></span> <b>黄色框</b> — 数据准备 / 数据集 / 训练流程<br><br>
+    <b>模型输入 → 输出维度流：</b><br>
+    输入 <code>[B, 3, 160, 160]</code>
+    → Backbone(InceptionResnetV1) → <code>[B, 512]</code>
+    → fc1 → <code>[B, 256]</code>
+    → fc2 → <code>[B, 128]</code>
+    → fc3 → <code>[B, num_classes]</code>（logits）
 </div>
 
 <script>mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { fontSize: '14px' } });</script>
