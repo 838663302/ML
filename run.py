@@ -6,6 +6,8 @@ from dataset import getLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from datetime import datetime
+from tokenizer import JiebaTokenizer
+
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
 def read_json():
@@ -58,17 +60,42 @@ def train(word2id):
             torch.save(model.state_dict(), config.MODEL_PATH)
     writer.close()
 
-def predict(input_str, word2id, id2word, model):
-    tokens = [token.strip() for token in jieba.lcut(input_str)]
-    indexedTokens = [word2id.get(token, 0) for token in tokens]
+def predict(input_str, model):
+    tokenizer = JiebaTokenizer.from_vocab(config.DATASET_DIR / "vocab.txt")
+    input_batch = tokenizer.encode(input_str)
+    input_batch = torch.tensor(input_batch, dtype=torch.long).unsqueeze(0)
+    topk_values, topk_indices = predict_batch(input_batch, model)
+
+    indices = topk_indices[0].tolist()
+    print(f"输入: {input_str}")
+    words = [tokenizer.id2word[idx] for idx in indices]
+    for idx, word in zip(indices, words):
+        print(f"  {word} ({idx})")
+    return words
+
+def predict_batch(input_batch, model):
     model.eval()
     with torch.no_grad():
-        input_ids = torch.tensor(indexedTokens, dtype=torch.long).unsqueeze(0).to(device)
-        output = model(input_ids)
+        output = model(input_batch.to(device))
         topk_values, topk_indices = torch.topk(output, k=5, dim=1)
-        topk_words = [id2word[idx.item()] for idx in topk_indices[0]]
-        print(topk_words)
-        print(topk_values)
+    return topk_values, topk_indices
+
+def evalute(model):
+    test_loader = getLoader(False)
+    top_value = 0
+    topk_value = 0
+    total = 0
+    for batch, targets in test_loader:
+        _, topk_indices = predict_batch(batch, model)
+        targets = targets.to(topk_indices.device)  
+        total += targets.size(0)
+
+        # top-1：第 0 列 == target
+        top_value  += (topk_indices[:, 0] == targets).sum().item()
+        # top-5：广播比较 (B,5) vs (B,1)，每行是否命中 target
+        topk_value += (topk_indices == targets.unsqueeze(1)).any(dim=1).sum().item()
+    print(f"Top-1 Accuracy: {top_value / total:.4f}")
+    print(f"Top-5 Accuracy: {topk_value / total:.4f}")
 
     
 if __name__ == "__main__":

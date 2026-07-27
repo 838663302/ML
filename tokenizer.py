@@ -7,7 +7,6 @@ class Tokenizer(ABC):
     sos = "<sos>"
     eos = "<eos>"
     def __init__(self, vocab_list):
-        specials = [self.oov, self.pad, self.sos, self.eos]
         self.word2id = {word: i for i, word in enumerate(vocab_list)}
         self.id2word = {i: word for i, word in enumerate(vocab_list)}
         self.vocab_size = len(vocab_list)
@@ -30,7 +29,7 @@ class Tokenizer(ABC):
         vocab_set = set()
         for sentence in sentences:
             vocab_set.update(cls.tokenize(sentence))
-        vocab_list = [cls.oov, cls.pad, cls.sos, cls.eos] + list(vocab_set)
+        vocab_list = [cls.pad, cls.oov, cls.sos, cls.eos] + list(vocab_set)
         with open(path, "w", encoding="utf-8") as f:
             f.write("\n".join(vocab_list))
     
@@ -48,6 +47,11 @@ class ENTokenizer(Tokenizer):
         return word_tokenize(sentence)
 
 class ZHTokenizer(Tokenizer):
+    @classmethod
+    def tokenize(cls, sentence):
+        return jieba.lcut(sentence)
+
+class JiebaTokenizer(Tokenizer):
     @classmethod
     def tokenize(cls, sentence):
         return jieba.lcut(sentence)
